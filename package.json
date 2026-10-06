@@ -1,0 +1,19 @@
+{
+  "name": "trip-splitter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Split trip expenses with friends. Express + MongoDB (Mongoose), MVC, single service.",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.5",
+    "express": "^4.21.2",
+    "mongoose": "^9.11.0"
+  }
+}
