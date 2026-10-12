@@ -101,6 +101,7 @@ public/index.html         V: the page people use (trips list and trip page)
 - Data lives in three collections: `trips`, `members` and `expenses`. Members and expenses carry the `tripId` of the trip they belong to. Each document's `_id` is the id the page generates, and the API returns it as `id`.
 - Amounts are stored in paise or cents as whole numbers, so splits always add up exactly.
 - The server validates every write: shares must add up to the total, names must be unique within a trip (ignoring case), an expense can only name people on its own trip, and a person who is part of an expense can't be removed.
+- A trip has three pages, each with its own link: **Expenses** (`/#/trip/<id>`: the people and the expense log), **Balances** (`/#/trip/<id>/balances`: who owes whom and the payments that settle up) and **Spending** (`/#/trip/<id>/spending`: what the trip cost each person, with their share of every expense). Switching pages doesn't reload the trip, and Back returns to the trips list.
 - Everyone who has the link (and the trip code, if set) can see, edit and delete every trip.
 - Open pages check for changes every few seconds, so everyone's view stays current.
 

@@ -90,6 +90,14 @@ button,input,select{font:inherit;color:inherit}
 .sync[data-mode="offline"] .dot{background:var(--neg)}
 #currency{font-size:.875rem;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:.3rem .45rem}
 
+/* Trip pages: expenses, balances, spending */
+.tabs-bar{position:sticky;top:0;z-index:3;margin:1.25rem -1.25rem 0;padding:.6rem 1.25rem;background:var(--bg)}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;background:var(--track);border-radius:12px;padding:3px}
+.tabs a{display:block;text-align:center;padding:.55rem .25rem;border-radius:9px;font-weight:650;font-size:.9375rem;color:var(--muted);text-decoration:none;cursor:pointer}
+.tabs a:hover{color:var(--ink)}
+.tabs a[aria-current="page"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px var(--shadow)}
+.panel > .block:first-child{margin-top:1.25rem}
+
 /* Sections */
 .block{margin-top:2.5rem}
 h2{font-size:1.375rem;font-weight:750;font-variation-settings:"opsz" 48;letter-spacing:-.01em;margin:0 0 .75rem}
@@ -269,45 +277,59 @@ dialog.gate::backdrop{background:var(--bg)}
     </div>
   </header>
 
-  <section class="block" aria-labelledby="peopleH">
-    <h2 id="peopleH">People</h2>
-    <p class="hint" id="peopleHint"></p>
-    <ul class="chips" id="memberList"></ul>
-    <form class="add-row" id="addMember" autocomplete="off">
-      <label class="sr" for="memberName">Name</label>
-      <input id="memberName" type="text" maxlength="40" placeholder="Add a name">
-      <button type="submit" class="btn btn-quiet">Add</button>
-    </form>
-  </section>
+  <div class="tabs-bar">
+    <nav class="tabs" id="tabs" aria-label="Trip pages">
+      <a data-tab="expenses">Expenses</a>
+      <a data-tab="balances">Balances</a>
+      <a data-tab="spending">Spending</a>
+    </nav>
+  </div>
 
-  <section class="block" aria-labelledby="spendH">
-    <h2 id="spendH">Spending by person</h2>
-    <p class="hint" id="spendHint"></p>
-    <ul class="spend" id="spendList"></ul>
-  </section>
+  <div class="panel" id="panel-expenses">
+    <section class="block" aria-labelledby="peopleH">
+      <h2 id="peopleH">People</h2>
+      <p class="hint" id="peopleHint"></p>
+      <ul class="chips" id="memberList"></ul>
+      <form class="add-row" id="addMember" autocomplete="off">
+        <label class="sr" for="memberName">Name</label>
+        <input id="memberName" type="text" maxlength="40" placeholder="Add a name">
+        <button type="submit" class="btn btn-quiet">Add</button>
+      </form>
+    </section>
 
-  <section class="block" aria-labelledby="balH">
-    <h2 id="balH">Balances</h2>
-    <p class="hint" id="balHint"></p>
-    <div class="axis" id="axis"></div>
-    <ul class="balances" id="balanceList"></ul>
-    <div id="settleWrap" hidden>
-      <h3 class="sub-h">To settle up</h3>
-      <p class="hint" id="settleHint"></p>
-      <ul class="settle" id="settleList"></ul>
-    </div>
-  </section>
+    <section class="block" aria-labelledby="expH">
+      <h2 id="expH">Expenses</h2>
+      <p class="hint" id="expHint"></p>
+      <div id="expenseList"></div>
+    </section>
 
-  <section class="block" aria-labelledby="expH">
-    <h2 id="expH">Expenses</h2>
-    <p class="hint" id="expHint"></p>
-    <div id="expenseList"></div>
-  </section>
+    <section class="block danger-zone" aria-label="Delete trip">
+      <button type="button" class="btn btn-danger" id="deleteTrip">Delete this trip</button>
+      <p class="hint">Removes the trip, its people and all its expenses for everyone. This can’t be undone.</p>
+    </section>
+  </div>
 
-  <section class="block danger-zone" aria-label="Delete trip">
-    <button type="button" class="btn btn-danger" id="deleteTrip">Delete this trip</button>
-    <p class="hint">Removes the trip, its people and all its expenses for everyone. This can’t be undone.</p>
-  </section>
+  <div class="panel" id="panel-balances" hidden>
+    <section class="block" aria-labelledby="balH">
+      <h2 class="sr" id="balH">Balances</h2>
+      <p class="hint" id="balHint"></p>
+      <div class="axis" id="axis"></div>
+      <ul class="balances" id="balanceList"></ul>
+      <div id="settleWrap" hidden>
+        <h3 class="sub-h">To settle up</h3>
+        <p class="hint" id="settleHint"></p>
+        <ul class="settle" id="settleList"></ul>
+      </div>
+    </section>
+  </div>
+
+  <div class="panel" id="panel-spending" hidden>
+    <section class="block" aria-labelledby="spendH">
+      <h2 class="sr" id="spendH">Spending by person</h2>
+      <p class="hint" id="spendHint"></p>
+      <ul class="spend" id="spendList"></ul>
+    </section>
+  </div>
 </main>
 
 <div class="dock" id="dock" hidden><button class="fab" id="addBtn" type="button">Add expense</button></div>
@@ -369,6 +391,7 @@ dialog.gate::backdrop{background:var(--bg)}
     mode: 'connecting',          // connecting | db | local
     readOnly: false,
     tripId: null,                // null shows the trips list
+    tab: 'expenses',             // the open trip's page: expenses | balances | spending
     trips: null,                 // null until the list has loaded
     ready: { meta: false, members: false, expenses: false },
     meta: { name: '', currency: 'INR' },
@@ -743,6 +766,13 @@ dialog.gate::backdrop{background:var(--bg)}
 
     setSync($('#sync'), busy, 'Shared with everyone who has this link');
 
+    document.querySelectorAll('#tabs a').forEach(function (a) {
+      var tab = a.getAttribute('data-tab');
+      a.href = tabHash(tab);
+      if (tab === state.tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+      $('#panel-' + tab).hidden = tab !== state.tab;
+    });
+
     var spent = state.expenses.filter(function (e) { return e.kind === 'expense'; });
     var total = spent.reduce(function (s, e) { return s + e.amount; }, 0);
     var summary = $('#summary');
@@ -1023,16 +1053,37 @@ dialog.gate::backdrop{background:var(--bg)}
     location.hash = '#/';
   });
 
-  /* ---------- pages: #/ is the trips list, #/trip/<id> is one trip ---------- */
-  function hashTripId() {
-    var m = /^#\/trip\/([A-Za-z0-9_-]{1,64})$/.exec(location.hash);
-    return m ? m[1] : null;
+  /* ---------- pages: #/ is the trips list, #/trip/<id> is one trip, with /balances or /spending for its other pages ---------- */
+  function parseHash() {
+    var m = /^#\/trip\/([A-Za-z0-9_-]{1,64})(?:\/(balances|spending))?$/.exec(location.hash);
+    return { tripId: m ? m[1] : null, tab: (m && m[2]) || 'expenses' };
   }
+  function tabHash(tab) { return '#/trip/' + state.tripId + (tab === 'expenses' ? '' : '/' + tab); }
+  // Moving between a trip's pages keeps the loaded trip, and replaces the history entry
+  // rather than adding one, so Back still goes to the trips list.
+  function showTab(tab) {
+    if (location.hash !== tabHash(tab)) history.replaceState(null, '', tabHash(tab));
+    if (tab === state.tab) return;
+    state.tab = tab;
+    render();
+    var top = $('#tripView header').getBoundingClientRect().bottom + window.scrollY;
+    if (window.scrollY > top) window.scrollTo(0, top);
+  }
+  $('#tabs').addEventListener('click', function (ev) {
+    var a = ev.target.closest('a[data-tab]');
+    if (!a || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+    ev.preventDefault();
+    showTab(a.getAttribute('data-tab'));
+  });
+
   function route() {
+    var r = parseHash();
+    if (r.tripId && r.tripId === state.tripId) { showTab(r.tab); return; }
     if (sheet.open) sheet.close();
     disarmTripDelete();
     spendOpen.clear();
-    state.tripId = hashTripId();
+    state.tripId = r.tripId;
+    state.tab = r.tab;
     state.meta = { name: '', currency: 'INR' };
     state.members = [];
     state.expenses = [];
@@ -1049,6 +1100,7 @@ dialog.gate::backdrop{background:var(--bg)}
     var members = sortedMembers();
     if (!e && members.length < 2) {
       toast('Add at least two people first.');
+      showTab('expenses');
       $('#memberName').focus();
       return;
     }
