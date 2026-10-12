@@ -138,6 +138,26 @@ h2{font-size:1.375rem;font-weight:750;font-variation-settings:"opsz" 48;letter-s
 .bar.pos{left:50%;background:var(--pos);border-radius:0 6px 6px 0}
 .bar.neg{right:50%;background:var(--neg);border-radius:6px 0 0 6px}
 
+/* Spending per person */
+.spend{list-style:none;margin:0;padding:0;display:grid;gap:1.1rem}
+.spend summary{display:block;list-style:none;cursor:pointer}
+.spend summary::-webkit-details-marker{display:none}
+.spend .bal-head{margin-bottom:0}
+.spend-amt{display:inline-flex;align-items:center;gap:.65rem}
+.spend-go{flex:none;width:.5rem;height:.5rem;margin:-.25rem .2rem 0;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);transition:transform .2s}
+.spend details[open] .spend-go{margin-top:.25rem;transform:rotate(225deg)}
+.spend summary:hover .spend-go{border-color:var(--ink)}
+.spend-sub{display:block;margin:0 0 .45rem 2.3rem;font-size:.875rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.meter{display:block;height:8px;border-radius:4px;background:var(--track);overflow:hidden}
+.meter span{display:block;height:100%;background:var(--c,var(--muted));border-radius:4px;transition:width .35s ease}
+.spend-items{list-style:none;margin:.5rem 0 0 2.3rem;padding:0}
+.spend-items li{display:flex;align-items:center;gap:.75rem;padding:.55rem 0;border-bottom:1px solid var(--line)}
+.spend-items .exp-desc{font-weight:600}
+.spend-items .exp-amt{font-weight:650}
+.spend-items .exp-amt.zero{color:var(--muted);font-weight:500}
+.spend-items li.spend-total{justify-content:space-between;border-bottom:0;font-weight:700}
+.spend-items li.spend-total .exp-amt{font-weight:750}
+
 .settle{list-style:none;margin:0;padding:0}
 .settle li{display:flex;align-items:center;gap:.75rem;padding:.75rem 0;border-bottom:1px solid var(--line)}
 .settle li:first-child{border-top:1px solid var(--line)}
@@ -258,6 +278,12 @@ dialog.gate::backdrop{background:var(--bg)}
       <input id="memberName" type="text" maxlength="40" placeholder="Add a name">
       <button type="submit" class="btn btn-quiet">Add</button>
     </form>
+  </section>
+
+  <section class="block" aria-labelledby="spendH">
+    <h2 id="spendH">Spending by person</h2>
+    <p class="hint" id="spendHint"></p>
+    <ul class="spend" id="spendList"></ul>
   </section>
 
   <section class="block" aria-labelledby="balH">
@@ -572,6 +598,7 @@ dialog.gate::backdrop{background:var(--bg)}
     var m = {}; members.forEach(function (p, i) { m[p.id] = COLORS[i % COLORS.length]; }); return m;
   }
   var colors = {}, byId = {};
+  var spendOpen = new Set(); // people whose spending breakdown is expanded
   function nameOf(id) { return byId[id] ? byId[id].name : 'Removed person'; }
   function avatar(id) {
     var name = nameOf(id).trim();
@@ -596,6 +623,26 @@ dialog.gate::backdrop{background:var(--bg)}
     });
     return bal;
   }
+  function newestFirst(a, b) { return b.date.localeCompare(a.date) || (b.createdAt - a.createdAt); }
+  // Each person's part of the expenses (the sum of their shares), how much they paid for, and the
+  // expenses behind those numbers, newest first. Settlements move money between people, so they are not spending.
+  function spending(members) {
+    var out = {};
+    function row(id) { return out[id] || (out[id] = { share: 0, paid: 0, items: [] }); }
+    members.forEach(function (m) { row(m.id); });
+    state.expenses.slice().sort(newestFirst).forEach(function (e) {
+      if (e.kind !== 'expense') return;
+      var ids = new Set(Object.keys(e.shares));
+      if (e.paidBy) ids.add(e.paidBy);
+      ids.forEach(function (id) {
+        var r = row(id), share = e.shares[id] || 0;
+        r.share += share;
+        if (id === e.paidBy) r.paid += e.amount;
+        r.items.push({ e: e, share: share });
+      });
+    });
+    return out;
+  }
   function settleUp(bal) {
     var cr = [], dr = [];
     Object.keys(bal).forEach(function (id) {
@@ -613,6 +660,13 @@ dialog.gate::backdrop{background:var(--bg)}
       if (dr[j].v === 0) j++;
     }
     return out;
+  }
+  function splitText(e, members) {
+    var n = Object.keys(e.shares).length;
+    if (e.split === 'exact') return 'split by amount';
+    if (n === 1) return 'for ' + nameOf(Object.keys(e.shares)[0]);
+    if (n === members.length) return 'split between everyone';
+    return 'split ' + n + ' ways';
   }
   function dayLabel(iso) {
     var p = iso.split('-').map(Number);
@@ -705,6 +759,7 @@ dialog.gate::backdrop{background:var(--bg)}
     delTrip.textContent = tripDeleteArmed ? 'Tap again to delete the trip' : 'Delete this trip';
 
     renderPeople(members, busy);
+    renderSpending(members, busy, spent.length, total);
     renderBalances(members, busy);
     renderExpenses(members, busy);
   }
@@ -721,6 +776,63 @@ dialog.gate::backdrop{background:var(--bg)}
         h('span', { class: 'chip-name', text: m.name }),
         canRemove ? h('button', { type: 'button', class: 'chip-x', 'aria-label': 'Remove ' + m.name, onclick: function () { removeMember(m); } }, '×') : null
       );
+    }));
+  }
+
+  function renderSpending(members, busy, count, total) {
+    var list = $('#spendList');
+    if (busy || !count) {
+      $('#spendHint').textContent = busy ? '' : 'Each person’s total for the trip appears here once you add an expense.';
+      list.replaceChildren();
+      return;
+    }
+    $('#spendHint').textContent = 'What the trip has cost each person: their share of every expense they were part of, whoever paid. Tap a total to see their share of each expense and how it was split.';
+    var sp = spending(members);
+    var ids = Object.keys(sp);
+    ids.sort(function (a, b) { return sp[b].share - sp[a].share; });
+    var max = Math.max.apply(null, [1].concat(ids.map(function (id) { return sp[id].share; })));
+    list.replaceChildren.apply(list, ids.map(function (id) {
+      var v = sp[id];
+      var pct = total ? (v.share / total) * 100 : 0;
+      var parts = [v.paid ? 'Paid ' + money(v.paid) : 'Paid nothing yet'];
+      if (v.share) parts.push((pct > 0 && pct < 1 ? 'under 1%' : Math.round(pct) + '%') + ' of the total');
+      var sub = v.share || v.paid ? parts.join(' · ') : 'Not part of any expense yet';
+      var details = h('details', { open: spendOpen.has(id) },
+        h('summary', null,
+          h('span', { class: 'bal-head' },
+            h('span', { class: 'who' }, avatar(id), h('span', { class: 'n', text: nameOf(id) })),
+            h('span', { class: 'spend-amt' },
+              h('span', { class: 'bal-amt' + (v.share ? '' : ' zero'), text: money(v.share) }),
+              h('span', { class: 'spend-go', 'aria-hidden': 'true' })
+            )
+          ),
+          h('span', { class: 'spend-sub', text: sub }),
+          h('span', { class: 'meter', 'aria-hidden': 'true' },
+            v.share ? h('span', { style: '--c:' + (colors[id] || '#8a8fa8') + ';width:' + ((v.share / max) * 100).toFixed(2) + '%' }) : null
+          )
+        ),
+        v.items.length
+          ? h('ul', { class: 'spend-items', 'aria-label': nameOf(id) + '’s share of each expense' }, v.items.map(function (it) {
+            var e = it.e;
+            return h('li', null,
+              h('span', { class: 'exp-main' },
+                h('span', { class: 'exp-desc', text: e.desc }),
+                h('span', { class: 'exp-sub', text: money(e.amount) + ' ' + splitText(e, members) }),
+                h('span', { class: 'exp-sub', text: nameOf(e.paidBy) + ' paid · ' + dayLabel(e.date) })
+              ),
+              h('span', { class: 'exp-amt' + (it.share ? '' : ' zero'), text: money(it.share) })
+            );
+          }).concat(h('li', { class: 'spend-total' },
+            h('span', { text: nameOf(id) + '’s total' }),
+            h('span', { class: 'exp-amt', text: money(v.share) })
+          )))
+          : h('p', { class: 'spend-sub', text: 'Nothing to show yet.' })
+      );
+      // Pages refresh every few seconds, so remember who is open across re-renders.
+      details.addEventListener('toggle', function () {
+        if (details.open) spendOpen.add(id); else spendOpen.delete(id);
+      });
+      return h('li', null, details);
     }));
   }
 
@@ -781,9 +893,7 @@ dialog.gate::backdrop{background:var(--bg)}
       box.replaceChildren(); return;
     }
     $('#expHint').textContent = '';
-    var sorted = state.expenses.slice().sort(function (a, b) {
-      return b.date.localeCompare(a.date) || (b.createdAt - a.createdAt);
-    });
+    var sorted = state.expenses.slice().sort(newestFirst);
     var groups = [];
     sorted.forEach(function (e) {
       var g = groups[groups.length - 1];
@@ -808,18 +918,12 @@ dialog.gate::backdrop{background:var(--bg)}
               )
             );
           }
-          var n = Object.keys(e.shares).length;
-          var splitText;
-          if (e.split === 'exact') splitText = 'split by amount';
-          else if (n === 1) splitText = 'for ' + nameOf(Object.keys(e.shares)[0]);
-          else if (n === members.length) splitText = 'split between everyone';
-          else splitText = 'split ' + n + ' ways';
           return h('li', null,
             h('button', { type: 'button', class: 'exp', disabled: ro, onclick: function () { openSheet(e); } },
               avatar(e.paidBy),
               h('span', { class: 'exp-main' },
                 h('span', { class: 'exp-desc', text: e.desc }),
-                h('span', { class: 'exp-sub', text: nameOf(e.paidBy) + ' paid, ' + splitText })
+                h('span', { class: 'exp-sub', text: nameOf(e.paidBy) + ' paid, ' + splitText(e, members) })
               ),
               h('span', { class: 'exp-amt', text: money(e.amount) })
             )
@@ -927,6 +1031,7 @@ dialog.gate::backdrop{background:var(--bg)}
   function route() {
     if (sheet.open) sheet.close();
     disarmTripDelete();
+    spendOpen.clear();
     state.tripId = hashTripId();
     state.meta = { name: '', currency: 'INR' };
     state.members = [];
